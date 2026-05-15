@@ -78,7 +78,7 @@ export default function Home() {
     formData.append("output_name", outputName);
 
     try {
-      const response = await fetch("http://localhost:8000/compress", {
+      const response = await fetch("https://submitfit-backend.onrender.com/compress", {
         method: "POST",
         body: formData,
       });

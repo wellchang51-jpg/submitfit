@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 export default function Home() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -9,10 +9,52 @@ export default function Home() {
   const [outputName, setOutputName] = useState("");
   const [message, setMessage] = useState("");
   const [isCompressing, setIsCompressing] = useState(false);
+  const [estimatedSecondsLeft, setEstimatedSecondsLeft] = useState<
+    number | null
+  >(null);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
 
   function removePdfExtension(filename: string) {
     return filename.replace(/\.pdf$/i, "");
   }
+
+  function estimateProcessingSeconds(file: File) {
+    const fileSizeMB = file.size / 1024 / 1024;
+
+    if (fileSizeMB <= 4) return 20;
+    if (fileSizeMB <= 10) return 60;
+    if (fileSizeMB <= 20) return 120;
+    if (fileSizeMB <= 40) return 180;
+
+    return 240;
+  }
+
+  function formatTime(seconds: number) {
+    if (seconds <= 0) return "即將完成";
+
+    const minutes = Math.floor(seconds / 60);
+    const remainingSeconds = seconds % 60;
+
+    if (minutes === 0) {
+      return `約 ${remainingSeconds} 秒`;
+    }
+
+    return `約 ${minutes} 分 ${remainingSeconds} 秒`;
+  }
+
+  useEffect(() => {
+    if (!isCompressing || estimatedSecondsLeft === null) return;
+
+    const timer = window.setInterval(() => {
+      setElapsedSeconds((prev) => prev + 1);
+      setEstimatedSecondsLeft((prev) => {
+        if (prev === null) return null;
+        return Math.max(prev - 1, 0);
+      });
+    }, 1000);
+
+    return () => window.clearInterval(timer);
+  }, [isCompressing, estimatedSecondsLeft]);
 
   function handleFileChange(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -70,18 +112,25 @@ export default function Home() {
       return;
     }
 
+    const estimatedSeconds = estimateProcessingSeconds(selectedFile);
+
     setIsCompressing(true);
-    setMessage("正在壓縮到 4MB 以下，請稍候……");
+    setEstimatedSecondsLeft(estimatedSeconds);
+    setElapsedSeconds(0);
+    setMessage("正在為你的學習歷程檔案壓縮到 4MB 以下，請不要關閉頁面。");
 
     const formData = new FormData();
     formData.append("file", selectedFile);
     formData.append("output_name", outputName);
 
     try {
-      const response = await fetch("https://submitfit-backend.onrender.com/compress", {
-        method: "POST",
-        body: formData,
-      });
+      const response = await fetch(
+        "https://submitfit-backend.onrender.com/compress",
+        {
+          method: "POST",
+          body: formData,
+        }
+      );
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => null);
@@ -127,21 +176,24 @@ export default function Home() {
         setMessage("壓縮完成，檔案已下載。");
       }
     } catch (error) {
-      setMessage("前端連不到後端，請確認後端 cmd 還開著。");
+      setMessage("前端連不到後端，請確認後端服務目前是否啟動。");
     } finally {
       setIsCompressing(false);
+      setEstimatedSecondsLeft(null);
+      setElapsedSeconds(0);
     }
   }
 
   return (
     <main style={styles.page}>
       <section style={styles.card}>
-        <p style={styles.logo}>SubmitFit</p>
+        <p style={styles.logo}>Drago's project</p>
 
-        <h1 style={styles.title}>學習歷程 PDF 壓縮到 4MB 以下</h1>
+        <h1 style={styles.title}>學習歷程檔案，一鍵壓到 4MB 以下 by抓狗</h1>
 
         <p style={styles.subtitle}>
-          上傳 PDF，系統會自動壓縮到符合學習歷程 4MB 限制，並盡量保持內容清楚。
+          專為高中生上傳學習歷程設計。上傳 PDF 後，系統會自動壓縮到
+          4MB 以下，並盡量保留文字與圖片清晰度 耶。
         </p>
 
         <div style={styles.grid}>
@@ -215,6 +267,7 @@ export default function Home() {
               <p style={styles.infoTitle}>壓縮目標</p>
               <p style={styles.infoText}>
                 系統會自動壓縮到 4MB 以下，適合上傳學習歷程檔案。
+                大檔案可能需要 1–3 分鐘，請耐心等候。
               </p>
             </div>
           </div>
@@ -228,8 +281,23 @@ export default function Home() {
           }}
           disabled={isCompressing}
         >
-          {isCompressing ? "壓縮中……" : "壓縮到 4MB 以下"}
+          {isCompressing ? "正在處理檔案……" : "開始壓縮到 4MB 以下"}
         </button>
+
+        {isCompressing && estimatedSecondsLeft !== null && (
+          <div style={styles.progressBox}>
+            <p style={styles.progressTitle}>正在壓縮中</p>
+
+            <p style={styles.progressText}>
+              預估剩餘時間：{formatTime(estimatedSecondsLeft)}
+            </p>
+
+            <p style={styles.progressHint}>
+              已處理約 {elapsedSeconds} 秒。第一次使用或大檔案可能需要
+              1–3 分鐘，請不要重新整理或關閉頁面。
+            </p>
+          </div>
+        )}
 
         {message && <p style={styles.message}>{message}</p>}
       </section>
@@ -413,6 +481,29 @@ const styles: Record<string, React.CSSProperties> = {
   primaryButtonDisabled: {
     background: "#94a3b8",
     cursor: "not-allowed",
+  },
+  progressBox: {
+    marginTop: "16px",
+    padding: "16px",
+    borderRadius: "14px",
+    background: "#f8fafc",
+    border: "1px solid #e2e8f0",
+  },
+  progressTitle: {
+    margin: 0,
+    fontWeight: 800,
+    color: "#111827",
+  },
+  progressText: {
+    margin: "8px 0 0",
+    color: "#3730a3",
+    fontWeight: 800,
+  },
+  progressHint: {
+    margin: "8px 0 0",
+    color: "#64748b",
+    fontSize: "14px",
+    lineHeight: 1.6,
   },
   message: {
     marginTop: "16px",

@@ -1,0 +1,28 @@
+# Python
+backend/venv/
+backend/__pycache__/
+backend/**/*.pyc
+
+# PDF test files
+backend/*.pdf
+backend/test.pdf
+backend/adobe_output.pdf
+
+# Adobe credentials
+backend/pdfservices-api-credentials.json
+
+# Next.js
+frontend/.next/
+frontend/node_modules/
+frontend/out/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+backend/.env
+frontend/.env.local
+
+# System files
+.DS_Store
+Thumbs.db

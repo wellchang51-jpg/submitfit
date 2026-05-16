@@ -25,4 +25,5 @@ frontend/.env.local
 
 # System files
 .DS_Store
-Thumbs.dbbackend/main_backup.py
+Thumbs.db
+backend/main_backup.py

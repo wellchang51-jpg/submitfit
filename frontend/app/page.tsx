@@ -9,6 +9,7 @@ export default function Home() {
   const [outputName, setOutputName] = useState("");
   const [message, setMessage] = useState("");
   const [isCompressing, setIsCompressing] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
   const [estimatedSecondsLeft, setEstimatedSecondsLeft] = useState<
     number | null
   >(null);
@@ -21,26 +22,27 @@ export default function Home() {
   function estimateProcessingSeconds(file: File) {
     const fileSizeMB = file.size / 1024 / 1024;
 
-    if (fileSizeMB <= 4) return 20;
-    if (fileSizeMB <= 10) return 60;
-    if (fileSizeMB <= 20) return 120;
-    if (fileSizeMB <= 40) return 180;
+    if (fileSizeMB <= 4) return 30;
+    if (fileSizeMB <= 10) return 90;
+    if (fileSizeMB <= 20) return 180;
+    if (fileSizeMB <= 40) return 300;
 
-    return 240;
+    return 420;
   }
 
-  function formatTime(seconds: number) {
-    if (seconds <= 0) return "即將完成";
-
-    const minutes = Math.floor(seconds / 60);
-    const remainingSeconds = seconds % 60;
-
-    if (minutes === 0) {
-      return `約 ${remainingSeconds} 秒`;
+  useEffect(() => {
+    function checkScreenSize() {
+      setIsMobile(window.innerWidth <= 768);
     }
 
-    return `約 ${minutes} 分 ${remainingSeconds} 秒`;
-  }
+    checkScreenSize();
+
+    window.addEventListener("resize", checkScreenSize);
+
+    return () => {
+      window.removeEventListener("resize", checkScreenSize);
+    };
+  }, []);
 
   useEffect(() => {
     if (!isCompressing || estimatedSecondsLeft === null) return;
@@ -169,7 +171,7 @@ export default function Home() {
           );
         } else {
           setMessage(
-            `已盡力壓縮：${originalMB} MB → ${compressedMB} MB，但仍超過 4MB。這份 PDF 頁數或圖片太多，可能需要拆成多份。`
+            `已盡力壓縮：${originalMB} MB → ${compressedMB} MB，但仍超過 4MB。為了保留圖片與版面完整，建議拆分 PDF 或降低原始圖片解析度。`
           );
         }
       } else {
@@ -185,26 +187,66 @@ export default function Home() {
   }
 
   return (
-    <main style={styles.page}>
-      <section style={styles.card}>
-        <p style={styles.logo}>Drago's project</p>
+    <main
+      style={{
+        ...styles.page,
+        ...(isMobile ? styles.pageMobile : {}),
+      }}
+    >
+      <section
+        style={{
+          ...styles.card,
+          ...(isMobile ? styles.cardMobile : {}),
+        }}
+      >
+        <p style={styles.logo}>Drago&apos;s project</p>
 
-        <h1 style={styles.title}>學習歷程檔案，一鍵壓到 4MB 以下 by抓狗</h1>
+        <h1
+          style={{
+            ...styles.title,
+            ...(isMobile ? styles.titleMobile : {}),
+          }}
+        >
+          幫助學習歷程壓縮器
+        </h1>
 
-        <p style={styles.subtitle}>
+        <p
+          style={{
+            ...styles.subtitle,
+            ...(isMobile ? styles.subtitleMobile : {}),
+          }}
+        >
           專為高中生上傳學習歷程設計。上傳 PDF 後，系統會自動壓縮到
-          4MB 以下，並盡量保留文字與圖片清晰度喔。另外，手機使用者建議用 Safari 或 Chrome 開啟。
-          若從 IG、LINE 開啟，下載後可能會直接預覽 PDF，
-          請使用「分享」或「在瀏覽器開啟」後再下載。
+          4MB 以下，並盡量保留文字與圖片清晰度。
         </p>
 
-        <div style={styles.grid}>
+        <div
+          style={{
+            ...styles.mobileNotice,
+            ...(isMobile ? styles.mobileNoticeMobile : {}),
+          }}
+        >
+          <p style={styles.mobileNoticeTitle}>手機使用提醒</p>
+          <p style={styles.mobileNoticeText}>
+            建議用 Safari，再用 Chrome。下載完可以到分享傳去檔案，或是在下載裡面找。
+          </p>
+        </div>
+
+        <div
+          style={{
+            ...styles.grid,
+            ...(isMobile ? styles.gridMobile : {}),
+          }}
+        >
           <div>
             <label style={styles.label}>上傳 PDF</label>
 
             <div style={styles.uploadArea}>
               <div
-                style={styles.uploadBox}
+                style={{
+                  ...styles.uploadBox,
+                  ...(isMobile ? styles.uploadBoxMobile : {}),
+                }}
                 onClick={() => fileInputRef.current?.click()}
               >
                 <input
@@ -231,7 +273,12 @@ export default function Home() {
               </div>
 
               {selectedFile && (
-                <div style={styles.fileButtonRow}>
+                <div
+                  style={{
+                    ...styles.fileButtonRow,
+                    ...(isMobile ? styles.fileButtonRowMobile : {}),
+                  }}
+                >
                   <button onClick={removeFile} style={styles.removeFileButton}>
                     移除檔案
                   </button>
@@ -247,18 +294,36 @@ export default function Home() {
             </div>
           </div>
 
-          <div>
+          <div
+            style={{
+              ...(isMobile ? styles.nameSectionMobile : {}),
+            }}
+          >
             <label style={styles.label}>壓縮後檔名</label>
 
-            <div style={styles.nameRow}>
+            <div
+              style={{
+                ...styles.nameRow,
+                ...(isMobile ? styles.nameRowMobile : {}),
+              }}
+            >
               <input
                 value={outputName}
                 onChange={(event) => setOutputName(event.target.value)}
                 placeholder="請輸入檔名"
-                style={styles.input}
+                style={{
+                  ...styles.input,
+                  ...(isMobile ? styles.inputMobile : {}),
+                }}
               />
 
-              <button onClick={clearName} style={styles.clearButton}>
+              <button
+                onClick={clearName}
+                style={{
+                  ...styles.clearButton,
+                  ...(isMobile ? styles.clearButtonMobile : {}),
+                }}
+              >
                 清除
               </button>
             </div>
@@ -269,7 +334,7 @@ export default function Home() {
               <p style={styles.infoTitle}>壓縮目標</p>
               <p style={styles.infoText}>
                 系統會自動壓縮到 4MB 以下，適合上傳學習歷程檔案。
-                大檔案可能需要 1–3 分鐘，請耐心等候。
+                線上版會優先保留圖片與版面完整，大檔案可能需要數分鐘。
               </p>
             </div>
           </div>
@@ -279,6 +344,7 @@ export default function Home() {
           onClick={handleCompress}
           style={{
             ...styles.primaryButton,
+            ...(isMobile ? styles.primaryButtonMobile : {}),
             ...(isCompressing ? styles.primaryButtonDisabled : {}),
           }}
           disabled={isCompressing}
@@ -295,7 +361,8 @@ export default function Home() {
             </p>
 
             <p style={styles.progressHint}>
-              已處理約 {elapsedSeconds} 秒。系統會優先保留圖片與版面完整；30MB 以上的 PDF 可能需要數分鐘，請不要重新整理或關閉頁面。
+              已處理約 {elapsedSeconds} 秒。系統會優先保留圖片與版面完整；
+              30MB 以上的 PDF 可能需要數分鐘，請不要重新整理或關閉頁面。
             </p>
           </div>
         )}
@@ -315,6 +382,11 @@ const styles: Record<string, React.CSSProperties> = {
     justifyContent: "center",
     padding: "40px 20px",
     fontFamily: "Arial, sans-serif",
+    boxSizing: "border-box",
+  },
+  pageMobile: {
+    alignItems: "flex-start",
+    padding: "18px 12px",
   },
   card: {
     width: "100%",
@@ -323,6 +395,12 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: "24px",
     padding: "36px",
     boxShadow: "0 20px 60px rgba(15, 23, 42, 0.08)",
+    boxSizing: "border-box",
+  },
+  cardMobile: {
+    maxWidth: "100%",
+    padding: "20px",
+    borderRadius: "18px",
   },
   logo: {
     margin: "0 0 8px",
@@ -336,18 +414,55 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: "36px",
     lineHeight: 1.2,
     color: "#111827",
+    wordBreak: "break-word",
+  },
+  titleMobile: {
+    fontSize: "29px",
+    lineHeight: 1.25,
   },
   subtitle: {
     marginTop: "14px",
-    marginBottom: "30px",
+    marginBottom: "20px",
     color: "#64748b",
     fontSize: "16px",
+    lineHeight: 1.7,
+  },
+  subtitleMobile: {
+    fontSize: "15px",
+    lineHeight: 1.65,
+    marginBottom: "16px",
+  },
+  mobileNotice: {
+    marginBottom: "28px",
+    padding: "14px 16px",
+    borderRadius: "14px",
+    background: "#fff7ed",
+    border: "1px solid #fed7aa",
+  },
+  mobileNoticeMobile: {
+    padding: "13px",
+    marginBottom: "22px",
+  },
+  mobileNoticeTitle: {
+    margin: 0,
+    color: "#9a3412",
+    fontWeight: 800,
+    fontSize: "14px",
+  },
+  mobileNoticeText: {
+    margin: "6px 0 0",
+    color: "#9a3412",
+    fontSize: "14px",
     lineHeight: 1.7,
   },
   grid: {
     display: "grid",
     gridTemplateColumns: "1fr 1fr",
     gap: "24px",
+  },
+  gridMobile: {
+    gridTemplateColumns: "1fr",
+    gap: "26px",
   },
   label: {
     display: "block",
@@ -370,6 +485,11 @@ const styles: Record<string, React.CSSProperties> = {
     justifyContent: "center",
     cursor: "pointer",
     padding: "20px",
+    boxSizing: "border-box",
+  },
+  uploadBoxMobile: {
+    minHeight: "150px",
+    padding: "18px",
   },
   uploadTitle: {
     margin: 0,
@@ -401,6 +521,9 @@ const styles: Record<string, React.CSSProperties> = {
     gridTemplateColumns: "1fr 1fr",
     gap: "10px",
   },
+  fileButtonRowMobile: {
+    gridTemplateColumns: "1fr",
+  },
   removeFileButton: {
     height: "42px",
     border: "none",
@@ -419,12 +542,20 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: 800,
     cursor: "pointer",
   },
+  nameSectionMobile: {
+    paddingTop: "4px",
+  },
   nameRow: {
     display: "flex",
     gap: "10px",
   },
+  nameRowMobile: {
+    flexDirection: "column",
+    gap: "12px",
+  },
   input: {
     flex: 1,
+    width: "100%",
     height: "48px",
     border: "1px solid #cbd5e1",
     borderRadius: "12px",
@@ -434,6 +565,12 @@ const styles: Record<string, React.CSSProperties> = {
     color: "#111827",
     background: "white",
     fontWeight: 700,
+    boxSizing: "border-box",
+  },
+  inputMobile: {
+    height: "54px",
+    fontSize: "17px",
+    padding: "0 16px",
   },
   clearButton: {
     height: "48px",
@@ -444,6 +581,10 @@ const styles: Record<string, React.CSSProperties> = {
     color: "#1e293b",
     fontWeight: 800,
     cursor: "pointer",
+  },
+  clearButtonMobile: {
+    width: "100%",
+    height: "48px",
   },
   hint: {
     marginTop: "10px",
@@ -479,6 +620,11 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: 800,
     cursor: "pointer",
   },
+  primaryButtonMobile: {
+    height: "52px",
+    fontSize: "16px",
+    marginTop: "24px",
+  },
   primaryButtonDisabled: {
     background: "#94a3b8",
     cursor: "not-allowed",
@@ -499,6 +645,7 @@ const styles: Record<string, React.CSSProperties> = {
     margin: "8px 0 0",
     color: "#3730a3",
     fontWeight: 800,
+    lineHeight: 1.6,
   },
   progressHint: {
     margin: "8px 0 0",
@@ -513,5 +660,7 @@ const styles: Record<string, React.CSSProperties> = {
     background: "#eef2ff",
     color: "#3730a3",
     fontWeight: 700,
+    lineHeight: 1.6,
+    wordBreak: "break-word",
   },
 };

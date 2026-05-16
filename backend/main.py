@@ -24,6 +24,7 @@ app.add_middleware(
 )
 
 TARGET_SIZE = 4 * 1024 * 1024
+MAX_INPUT_SIZE = 45 * 1024 * 1024
 
 
 @app.get("/")
@@ -221,17 +222,9 @@ def compress_pdf_to_target(input_path: str, final_output_path: str):
 
         # 第二階段：整頁視覺保留壓縮
         # 從較清楚開始，逐步降低 dpi / quality
-        raster_settings = [
-            (140, 72),
-            (130, 68),
-            (120, 64),
-            (110, 60),
-            (100, 55),
-            (90, 50),
-            (80, 45),
-            (72, 40),
-            (65, 36),
-            (60, 32),
+       raster_settings = [
+            (100, 45),
+            (80, 35),
         ]
 
         for dpi, quality in raster_settings:
@@ -294,6 +287,11 @@ async def compress_pdf(
 
         with open(input_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
+            if file_size(str(input_path)) > MAX_INPUT_SIZE:
+    raise HTTPException(
+        status_code=400,
+        detail="這份 PDF 超過 50MB。為了保留圖片與版面完整，請先拆分 PDF 或降低原始圖片解析度後再上傳。",
+    )
 
         try:
             result = compress_pdf_to_target(str(input_path), str(output_path))

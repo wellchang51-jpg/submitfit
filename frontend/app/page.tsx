@@ -82,7 +82,7 @@ export default function Home() {
       setObstacleLeft((prev) => {
         const nextLeft = prev - 2.2;
 
-        const isInCollisionZone = nextLeft <= 18 && nextLeft >= 8;
+        const isInCollisionZone = nextLeft <= 18 && nextLeft >= 6;
 
         if (isInCollisionZone && !collisionHandledRef.current) {
           collisionHandledRef.current = true;
@@ -875,7 +875,7 @@ const styles: Record<string, React.CSSProperties> = {
   zIndex: 2,
 },
 dinoJumping: {
-  bottom: "58px",
+  bottom: "72px",
 },
 dinoBodyMain: {
   position: "absolute",
@@ -942,7 +942,7 @@ dinoLeg: {
 dinoTail: {
   position: "absolute",
   left: "2px",
-  bottom: "18px",
+  bottom: "10px",
   width: "18px",
   height: "6px",
   background: "#111111",

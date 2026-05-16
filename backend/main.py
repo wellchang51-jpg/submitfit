@@ -1,271 +1,281 @@
 import os
-import re
 import shutil
 import subprocess
 import tempfile
-import uuid
 from pathlib import Path
+from typing import Optional
 
 import fitz
-
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
+from PIL import Image
+import io
+
 
 app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=False,
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-TARGET_SIZE_MB = 4
-TARGET_SIZE_BYTES = TARGET_SIZE_MB * 1024 * 1024
-MAX_UPLOAD_MB = 100
-MAX_UPLOAD_BYTES = MAX_UPLOAD_MB * 1024 * 1024
+TARGET_SIZE = 4 * 1024 * 1024
 
 
-def sanitize_filename(name: str) -> str:
-    name = name.strip()
-
-    if not name:
-        name = "compressed"
-
-    name = re.sub(r"\.pdf$", "", name, flags=re.IGNORECASE)
-    name = re.sub(r"[^\w\u4e00-\u9fff\s\-.]", "", name)
-    name = name[:80].strip()
-
-    if not name:
-        name = "compressed"
-
-    return f"{name}.pdf"
+@app.get("/")
+def root():
+    return {"message": "SubmitFit backend is running"}
 
 
-def find_ghostscript() -> str:
-    for command in ["gswin64c", "gswin32c", "gs"]:
-        if shutil.which(command):
-            return command
-
-    raise RuntimeError("找不到 Ghostscript，請確認已安裝 gswin64c。")
+def file_size(path: str) -> int:
+    return os.path.getsize(path)
 
 
-def run_ghostscript(input_path: str, output_path: str, dpi: int, jpeg_quality: int):
-    gs_command = find_ghostscript()
+def find_ghostscript() -> Optional[str]:
+    candidates = [
+        "gs",
+        "gswin64c",
+        "gswin32c",
+        r"C:\Program Files\gs\gs10.07.0\bin\gswin64c.exe",
+        r"C:\Program Files\gs\gs10.06.0\bin\gswin64c.exe",
+        r"C:\Program Files\gs\gs10.05.0\bin\gswin64c.exe",
+    ]
+
+    for candidate in candidates:
+        found = shutil.which(candidate)
+        if found:
+            return found
+
+        if os.path.exists(candidate):
+            return candidate
+
+    return None
+
+
+def count_pages(path: str) -> int:
+    doc = fitz.open(path)
+    pages = len(doc)
+    doc.close()
+    return pages
+
+
+def is_pdf_visually_valid(path: str, expected_pages: int) -> bool:
+    """
+    安全檢查：
+    1. 頁數不能變少
+    2. 至少能打開
+    3. 每頁渲染不應該失敗
+
+    注意：這不是完美的畫面比對，但可以避免明顯壞掉的 PDF。
+    """
+    try:
+        doc = fitz.open(path)
+
+        if len(doc) != expected_pages:
+            doc.close()
+            return False
+
+        for page in doc:
+            pix = page.get_pixmap(matrix=fitz.Matrix(0.25, 0.25), alpha=False)
+
+            if pix.width <= 0 or pix.height <= 0 or len(pix.samples) == 0:
+                doc.close()
+                return False
+
+        doc.close()
+        return True
+
+    except Exception:
+        return False
+
+
+def ghostscript_compress(input_path: str, output_path: str, setting: str):
+    """
+    Ghostscript 壓縮：
+    優點：比較能保留文字、向量、原 PDF 結構。
+    缺點：不一定能壓到 4MB 以下。
+    """
+    gs = find_ghostscript()
+
+    if not gs:
+        raise RuntimeError("找不到 Ghostscript")
 
     command = [
-        gs_command,
+        gs,
         "-sDEVICE=pdfwrite",
-        "-dCompatibilityLevel=1.6",
+        "-dCompatibilityLevel=1.4",
+        f"-dPDFSETTINGS=/{setting}",
         "-dNOPAUSE",
         "-dQUIET",
         "-dBATCH",
-        "-dSAFER",
-
-        # PDF 清理與最佳化
         "-dDetectDuplicateImages=true",
         "-dCompressFonts=true",
         "-dSubsetFonts=true",
-        "-dEmbedAllFonts=true",
-        "-dCompressPages=true",
-        "-dUseFlateCompression=true",
-
-        # 移除可能增加大小的互動內容
-        "-dPreserveAnnots=false",
-        "-dPreserveMarkedContent=false",
-
-        # 彩色圖片降解析度
-        "-dDownsampleColorImages=true",
         "-dColorImageDownsampleType=/Bicubic",
-        f"-dColorImageResolution={dpi}",
-        f"-dColorImageDownsampleThreshold=1.0",
-
-        # 灰階圖片降解析度
-        "-dDownsampleGrayImages=true",
         "-dGrayImageDownsampleType=/Bicubic",
-        f"-dGrayImageResolution={dpi}",
-        f"-dGrayImageDownsampleThreshold=1.0",
-
-        # 黑白圖片降解析度
-        "-dDownsampleMonoImages=true",
         "-dMonoImageDownsampleType=/Subsample",
-        f"-dMonoImageResolution={max(dpi, 150)}",
-        "-dMonoImageDownsampleThreshold=1.0",
-
-        # JPEG 品質
-        f"-dJPEGQ={jpeg_quality}",
-
+        "-dColorImageResolution=120",
+        "-dGrayImageResolution=120",
+        "-dMonoImageResolution=300",
         f"-sOutputFile={output_path}",
         input_path,
     ]
 
-    result = subprocess.run(
-        command,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
+    subprocess.run(command, check=True)
+
+
+def rasterize_pdf_preserve_layout(
+    input_path: str,
+    output_path: str,
+    dpi: int,
+    jpeg_quality: int,
+):
+    """
+    安全 fallback：
+    把每一頁完整渲染成圖片，再重新組成 PDF。
+
+    重點：
+    - 不抽文字
+    - 不抽圖片
+    - 不重建版面
+    - 直接保留整頁視覺結果
+
+    所以圖片不應該消失，版面也不應該跑掉。
+    """
+    source_pdf = fitz.open(input_path)
+    output_pdf = fitz.open()
+
+    zoom = dpi / 72
+
+    for page in source_pdf:
+        rect = page.rect
+        matrix = fitz.Matrix(zoom, zoom)
+
+        pix = page.get_pixmap(matrix=matrix, alpha=False)
+
+        image = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+
+        image_bytes = io.BytesIO()
+        image.save(
+            image_bytes,
+            format="JPEG",
+            quality=jpeg_quality,
+            optimize=True,
+            progressive=True,
+        )
+        image_bytes.seek(0)
+
+        new_page = output_pdf.new_page(width=rect.width, height=rect.height)
+        new_page.insert_image(rect, stream=image_bytes.getvalue())
+
+    output_pdf.save(
+        output_path,
+        garbage=4,
+        deflate=True,
+        clean=True,
     )
 
-    if result.returncode != 0:
-        raise RuntimeError(result.stderr or "Ghostscript 壓縮失敗")
+    output_pdf.close()
+    source_pdf.close()
 
 
+def compress_pdf_to_target(input_path: str, final_output_path: str):
+    original_size = file_size(input_path)
+    expected_pages = count_pages(input_path)
 
+    candidates: list[tuple[str, int, str]] = []
 
+    with tempfile.TemporaryDirectory() as temp_dir:
+        temp_dir_path = Path(temp_dir)
 
-def rasterize_pdf_to_4mb(input_path: str, output_dir: str) -> tuple[str, int]:
-    """
-    終極壓縮：
-    把每頁轉成圖片後重新組成 PDF。
-    目標是找出低於 4MB 但畫質盡量高的版本。
-    """
-    attempts = [
-        {"dpi": 150, "quality": 75},
-        {"dpi": 135, "quality": 72},
-        {"dpi": 120, "quality": 70},
-        {"dpi": 110, "quality": 68},
-        {"dpi": 100, "quality": 65},
-        {"dpi": 90, "quality": 62},
-        {"dpi": 80, "quality": 58},
-        {"dpi": 72, "quality": 55},
-        {"dpi": 65, "quality": 52},
-        {"dpi": 60, "quality": 50},
-        {"dpi": 55, "quality": 48},
-        {"dpi": 50, "quality": 45},
-        {"dpi": 45, "quality": 42},
-        {"dpi": 40, "quality": 38},
-        {"dpi": 35, "quality": 34},
-        {"dpi": 30, "quality": 30},
-        {"dpi": 25, "quality": 25},
-        {"dpi": 20, "quality": 20},
-    ]
+        # 第一階段：Ghostscript，盡量保留 PDF 原結構
+        gs_settings = ["ebook", "screen"]
 
-    best_under_path = None
-    best_under_size = None
+        for setting in gs_settings:
+            output_path = temp_dir_path / f"ghostscript_{setting}.pdf"
 
-    smallest_path = None
-    smallest_size = None
+            try:
+                ghostscript_compress(input_path, str(output_path), setting)
 
-    original_doc = fitz.open(input_path)
+                if output_path.exists() and is_pdf_visually_valid(
+                    str(output_path), expected_pages
+                ):
+                    size = file_size(str(output_path))
+                    candidates.append((str(output_path), size, f"ghostscript-{setting}"))
 
-    try:
-        for index, setting in enumerate(attempts):
-            dpi = setting["dpi"]
-            quality = setting["quality"]
-            zoom = dpi / 72
+                    if size <= TARGET_SIZE:
+                        shutil.copyfile(output_path, final_output_path)
+                        return {
+                            "method": f"ghostscript-{setting}",
+                            "original_size": original_size,
+                            "compressed_size": size,
+                            "under_target": True,
+                        }
 
-            output_path = os.path.join(output_dir, f"rasterized_{index}.pdf")
+            except Exception:
+                pass
 
-            new_doc = fitz.open()
+        # 第二階段：整頁視覺保留壓縮
+        # 從較清楚開始，逐步降低 dpi / quality
+        raster_settings = [
+            (140, 72),
+            (130, 68),
+            (120, 64),
+            (110, 60),
+            (100, 55),
+            (90, 50),
+            (80, 45),
+            (72, 40),
+            (65, 36),
+            (60, 32),
+        ]
 
-            for page in original_doc:
-                matrix = fitz.Matrix(zoom, zoom)
-                pix = page.get_pixmap(matrix=matrix, alpha=False)
+        for dpi, quality in raster_settings:
+            output_path = temp_dir_path / f"raster_{dpi}_{quality}.pdf"
 
-                img_bytes = pix.tobytes("jpeg", jpg_quality=quality)
-
-                new_page = new_doc.new_page(
-                    width=page.rect.width,
-                    height=page.rect.height,
+            try:
+                rasterize_pdf_preserve_layout(
+                    input_path=input_path,
+                    output_path=str(output_path),
+                    dpi=dpi,
+                    jpeg_quality=quality,
                 )
 
-                new_page.insert_image(page.rect, stream=img_bytes)
+                if output_path.exists() and is_pdf_visually_valid(
+                    str(output_path), expected_pages
+                ):
+                    size = file_size(str(output_path))
+                    candidates.append((str(output_path), size, f"raster-{dpi}-{quality}"))
 
-            new_doc.save(
-                output_path,
-                garbage=4,
-                deflate=True,
-                clean=True,
-            )
+                    if size <= TARGET_SIZE:
+                        shutil.copyfile(output_path, final_output_path)
+                        return {
+                            "method": f"raster-{dpi}-{quality}",
+                            "original_size": original_size,
+                            "compressed_size": size,
+                            "under_target": True,
+                        }
 
-            new_doc.close()
+            except Exception:
+                pass
 
-            output_size = os.path.getsize(output_path)
+        if not candidates:
+            raise RuntimeError("壓縮失敗，沒有產生可用 PDF")
 
-            if smallest_size is None or output_size < smallest_size:
-                smallest_path = output_path
-                smallest_size = output_size
+        # 如果都壓不到 4MB，就回傳最小但視覺有效的版本
+        best_path, best_size, best_method = min(candidates, key=lambda item: item[1])
+        shutil.copyfile(best_path, final_output_path)
 
-            # 低於 4MB 但盡量接近 4MB，通常代表畫質比較高
-            if output_size <= TARGET_SIZE_BYTES:
-                if best_under_size is None or output_size > best_under_size:
-                    best_under_path = output_path
-                    best_under_size = output_size
-
-        if best_under_path and best_under_size:
-            return best_under_path, best_under_size
-
-        if smallest_path and smallest_size:
-            return smallest_path, smallest_size
-
-        raise HTTPException(status_code=500, detail="終極壓縮失敗。")
-
-    finally:
-        original_doc.close()
-
-
-def compress_pdf_to_4mb(input_path: str, output_dir: str) -> tuple[str, int]:
-    original_size = os.path.getsize(input_path)
-
-    if original_size <= TARGET_SIZE_BYTES:
-        return input_path, original_size
-
-    # 第一階段：模仿 Adobe High compression
-    # 重點：保留文字與向量，只壓縮圖片
-    ghostscript_attempts = [
-        {"dpi": 120, "quality": 75},
-        {"dpi": 100, "quality": 70},
-        {"dpi": 90, "quality": 65},
-        {"dpi": 80, "quality": 60},
-        {"dpi": 72, "quality": 55},
-        {"dpi": 65, "quality": 50},
-        {"dpi": 60, "quality": 45},
-    ]
-
-    best_under_path = None
-    best_under_size = None
-
-    smallest_gs_path = None
-    smallest_gs_size = None
-
-    for index, setting in enumerate(ghostscript_attempts):
-        output_path = os.path.join(output_dir, f"gs_adobe_like_{index}.pdf")
-
-        try:
-            run_ghostscript(
-                input_path=input_path,
-                output_path=output_path,
-                dpi=setting["dpi"],
-                jpeg_quality=setting["quality"],
-            )
-        except RuntimeError:
-            continue
-
-        output_size = os.path.getsize(output_path)
-
-        if smallest_gs_size is None or output_size < smallest_gs_size:
-            smallest_gs_path = output_path
-            smallest_gs_size = output_size
-
-        if output_size <= TARGET_SIZE_BYTES:
-            if best_under_size is None or output_size > best_under_size:
-                best_under_path = output_path
-                best_under_size = output_size
-
-    # 如果 Ghostscript 已經能低於 4MB，就回傳最接近 4MB 的版本
-    # 通常這會比整頁轉圖片清楚
-    if best_under_path and best_under_size:
-        return best_under_path, best_under_size
-
-    # 第二階段：如果 Ghostscript 最小版本還是壓不下來，才用終極圖片化
-    return rasterize_pdf_to_4mb(input_path, output_dir)
-
-
-@app.get("/")
-def home():
-    return {"message": "SubmitFit backend is running"}
+        return {
+            "method": best_method,
+            "original_size": original_size,
+            "compressed_size": best_size,
+            "under_target": best_size <= TARGET_SIZE,
+        }
 
 
 @app.post("/compress")
@@ -274,53 +284,45 @@ async def compress_pdf(
     output_name: str = Form(...),
 ):
     if not file.filename or not file.filename.lower().endswith(".pdf"):
-        raise HTTPException(status_code=400, detail="目前只支援 PDF 檔案。")
-
-    safe_output_name = sanitize_filename(output_name)
+        raise HTTPException(status_code=400, detail="請上傳 PDF 檔案。")
 
     with tempfile.TemporaryDirectory() as temp_dir:
         temp_dir_path = Path(temp_dir)
-        input_path = temp_dir_path / f"{uuid.uuid4()}_input.pdf"
 
-        total_size = 0
+        input_path = temp_dir_path / "input.pdf"
+        output_path = temp_dir_path / "compressed.pdf"
 
         with open(input_path, "wb") as buffer:
-            while True:
-                chunk = await file.read(1024 * 1024)
-
-                if not chunk:
-                    break
-
-                total_size += len(chunk)
-
-                if total_size > MAX_UPLOAD_BYTES:
-                    raise HTTPException(
-                        status_code=413,
-                        detail=f"檔案太大，目前最大只支援 {MAX_UPLOAD_MB}MB。",
-                    )
-
-                buffer.write(chunk)
+            shutil.copyfileobj(file.file, buffer)
 
         try:
-            compressed_path, compressed_size = compress_pdf_to_4mb(
-                input_path=str(input_path),
-                output_dir=temp_dir,
+            result = compress_pdf_to_target(str(input_path), str(output_path))
+
+            if not output_path.exists():
+                raise HTTPException(status_code=500, detail="壓縮失敗，沒有輸出檔案。")
+
+            with open(output_path, "rb") as compressed_file:
+                pdf_bytes = compressed_file.read()
+
+            headers = {
+                "Content-Disposition": 'attachment; filename="compressed.pdf"',
+                "X-Original-Size": str(result["original_size"]),
+                "X-Compressed-Size": str(result["compressed_size"]),
+                "X-Compression-Method": result["method"],
+                "X-Under-Target": str(result["under_target"]),
+            }
+
+            return Response(
+                content=pdf_bytes,
+                media_type="application/pdf",
+                headers=headers,
             )
-        except RuntimeError as error:
-            raise HTTPException(status_code=500, detail=str(error))
 
-        final_path = temp_dir_path / safe_output_name
-        shutil.copyfile(compressed_path, final_path)
+        except HTTPException:
+            raise
 
-        with open(final_path, "rb") as result_file:
-            pdf_bytes = result_file.read()
-
-        return Response(
-    content=pdf_bytes,
-    media_type="application/pdf",
-    headers={
-        "Content-Disposition": 'attachment; filename="compressed.pdf"',
-        "X-Compressed-Size": str(compressed_size),
-        "X-Original-Size": str(total_size),
-    },
-)
+        except Exception as error:
+            raise HTTPException(
+                status_code=500,
+                detail=f"壓縮失敗：{str(error)}",
+            )

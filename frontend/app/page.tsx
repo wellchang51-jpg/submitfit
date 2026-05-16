@@ -193,7 +193,9 @@ export default function Home() {
 
         <p style={styles.subtitle}>
           專為高中生上傳學習歷程設計。上傳 PDF 後，系統會自動壓縮到
-          4MB 以下，並盡量保留文字與圖片清晰度 耶。
+          4MB 以下，並盡量保留文字與圖片清晰度喔。另外，手機使用者建議用 Safari 或 Chrome 開啟。
+          若從 IG、LINE 開啟，下載後可能會直接預覽 PDF，
+          請使用「分享」或「在瀏覽器開啟」後再下載。
         </p>
 
         <div style={styles.grid}>
@@ -289,12 +291,11 @@ export default function Home() {
             <p style={styles.progressTitle}>正在壓縮中</p>
 
             <p style={styles.progressText}>
-              預估剩餘時間：{formatTime(estimatedSecondsLeft)}
+              預估處理時間：通常 20 秒～2 分鐘
             </p>
 
             <p style={styles.progressHint}>
-              已處理約 {elapsedSeconds} 秒。第一次使用或大檔案可能需要
-              1–3 分鐘，請不要重新整理或關閉頁面。
+              已處理約 {elapsedSeconds} 秒。系統會優先保留圖片與版面完整，請不要重新整理或關閉頁面。
             </p>
           </div>
         )}

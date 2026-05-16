@@ -2,8 +2,11 @@
 
 import { useEffect, useRef, useState } from "react";
 
+type GameStatus = "idle" | "playing" | "dead";
+
 export default function Home() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const collisionHandledRef = useRef(false);
 
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [outputName, setOutputName] = useState("");
@@ -14,6 +17,11 @@ export default function Home() {
     number | null
   >(null);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
+
+  const [gameStatus, setGameStatus] = useState<GameStatus>("idle");
+  const [isDinoJumping, setIsDinoJumping] = useState(false);
+  const [obstacleLeft, setObstacleLeft] = useState(100);
+  const [gameScore, setGameScore] = useState(3);
 
   function removePdfExtension(filename: string) {
     return filename.replace(/\.pdf$/i, "");
@@ -58,6 +66,57 @@ export default function Home() {
     return () => window.clearInterval(timer);
   }, [isCompressing, estimatedSecondsLeft]);
 
+  useEffect(() => {
+    if (!isCompressing) {
+      setGameStatus("idle");
+      setGameScore(3);
+      setObstacleLeft(100);
+      setIsDinoJumping(false);
+      collisionHandledRef.current = false;
+      return;
+    }
+
+    if (gameStatus !== "playing") return;
+
+    const gameTimer = window.setInterval(() => {
+      setObstacleLeft((prev) => {
+        const nextLeft = prev - 2.2;
+
+        const isInCollisionZone = nextLeft <= 18 && nextLeft >= 8;
+
+        if (isInCollisionZone && !collisionHandledRef.current) {
+          collisionHandledRef.current = true;
+
+          if (isDinoJumping) {
+            setGameScore((score) => score + 1);
+          } else {
+            setGameScore((score) => {
+              const nextScore = score - 1;
+
+              if (nextScore <= 0) {
+                setGameStatus("dead");
+                return 0;
+              }
+
+              return nextScore;
+            });
+          }
+        }
+
+        if (nextLeft <= -8) {
+          collisionHandledRef.current = false;
+          return 100;
+        }
+
+        return nextLeft;
+      });
+    }, 35);
+
+    return () => {
+      window.clearInterval(gameTimer);
+    };
+  }, [isCompressing, gameStatus, isDinoJumping]);
+
   function handleFileChange(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
 
@@ -101,6 +160,29 @@ export default function Home() {
     fileInputRef.current?.click();
   }
 
+  function startDinoGame() {
+    setGameScore(3);
+    setObstacleLeft(100);
+    setIsDinoJumping(false);
+    setGameStatus("playing");
+    collisionHandledRef.current = false;
+  }
+
+  function restartDinoGame() {
+    startDinoGame();
+  }
+
+  function jumpDino() {
+    if (gameStatus !== "playing") return;
+    if (isDinoJumping) return;
+
+    setIsDinoJumping(true);
+
+    window.setTimeout(() => {
+      setIsDinoJumping(false);
+    }, 450);
+  }
+
   async function handleCompress() {
     setMessage("");
 
@@ -119,6 +201,11 @@ export default function Home() {
     setIsCompressing(true);
     setEstimatedSecondsLeft(estimatedSeconds);
     setElapsedSeconds(0);
+    setGameStatus("idle");
+    setGameScore(3);
+    setObstacleLeft(100);
+    setIsDinoJumping(false);
+    collisionHandledRef.current = false;
     setMessage("正在為你的學習歷程檔案壓縮到 4MB 以下，請不要關閉頁面。");
 
     const formData = new FormData();
@@ -183,6 +270,11 @@ export default function Home() {
       setIsCompressing(false);
       setEstimatedSecondsLeft(null);
       setElapsedSeconds(0);
+      setGameStatus("idle");
+      setGameScore(3);
+      setObstacleLeft(100);
+      setIsDinoJumping(false);
+      collisionHandledRef.current = false;
     }
   }
 
@@ -207,7 +299,7 @@ export default function Home() {
             ...(isMobile ? styles.titleMobile : {}),
           }}
         >
-          幫助學習歷程壓縮器
+          幫助學習歷程壓縮器 By Drago
         </h1>
 
         <p
@@ -364,6 +456,65 @@ export default function Home() {
               已處理約 {elapsedSeconds} 秒。系統會優先保留圖片與版面完整；
               30MB 以上的 PDF 可能需要數分鐘，請不要重新整理或關閉頁面。
             </p>
+
+            <div style={styles.gameBox}>
+              <div style={styles.gameTopRow}>
+                <span style={styles.gameTitle}>等待小遊戲</span>
+                <span style={styles.gameScore}>分數：{gameScore}</span>
+              </div>
+
+              <p style={styles.gameHint}>
+                按「開始玩」後，點擊遊戲區讓黑金恐龍跳過大便。跳過 +1，撞到 -1，分數歸零就死亡。
+              </p>
+
+              {gameStatus === "idle" && (
+                <button onClick={startDinoGame} style={styles.gameButton}>
+                  開始玩
+                </button>
+              )}
+
+              {gameStatus === "dead" && (
+                <div style={styles.deadBox}>
+                  <p style={styles.deadText}>你死掉了 QQ</p>
+                  <button onClick={restartDinoGame} style={styles.gameButton}>
+                    重新開始
+                  </button>
+                </div>
+              )}
+
+              <div
+                style={styles.gameStage}
+                onClick={jumpDino}
+                onTouchStart={jumpDino}
+              >
+                <div
+                  style={{
+                  ...styles.dino,
+                  ...(isDinoJumping ? styles.dinoJumping : {}),
+                }}
+              >
+              <div style={styles.dinoTail} />
+              <div style={styles.dinoBodyMain} />
+              <div style={styles.dinoNeck} />
+              <div style={styles.dinoHead} />
+              <div style={styles.dinoEye} />
+              <div style={styles.dinoArm} />
+              <div style={{ ...styles.dinoLeg, left: "22px" }} />
+              <div style={{ ...styles.dinoLeg, left: "40px" }} />
+            </div>
+
+                <div
+                  style={{
+                    ...styles.obstacle,
+                    left: `${obstacleLeft}%`,
+                  }}
+                >
+                  💩
+                </div>
+
+                <div style={styles.ground} />
+              </div>
+            </div>
           </div>
         )}
 
@@ -652,6 +803,168 @@ const styles: Record<string, React.CSSProperties> = {
     color: "#64748b",
     fontSize: "14px",
     lineHeight: 1.6,
+  },
+  gameBox: {
+    marginTop: "16px",
+    padding: "14px",
+    borderRadius: "14px",
+    background: "#ffffff",
+    border: "1px solid #e2e8f0",
+    userSelect: "none",
+    overflow: "hidden",
+  },
+  gameTopRow: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: "12px",
+  },
+  gameTitle: {
+    fontWeight: 800,
+    color: "#111827",
+  },
+  gameScore: {
+    fontWeight: 800,
+    color: "#b45309",
+  },
+  gameHint: {
+    margin: "6px 0 10px",
+    color: "#64748b",
+    fontSize: "13px",
+    lineHeight: 1.5,
+  },
+  gameButton: {
+    marginBottom: "12px",
+    height: "38px",
+    border: "none",
+    borderRadius: "10px",
+    padding: "0 14px",
+    background: "#111827",
+    color: "#facc15",
+    fontWeight: 900,
+    cursor: "pointer",
+  },
+  deadBox: {
+    marginBottom: "12px",
+    padding: "10px",
+    borderRadius: "12px",
+    background: "#fef2f2",
+    border: "1px solid #fecaca",
+  },
+  deadText: {
+    margin: "0 0 8px",
+    color: "#991b1b",
+    fontWeight: 900,
+  },
+  gameStage: {
+    position: "relative",
+    height: "96px",
+    borderRadius: "12px",
+    background: "#f8fafc",
+    overflow: "hidden",
+    border: "1px solid #e2e8f0",
+    cursor: "pointer",
+  },
+  dino: {
+  position: "absolute",
+  left: "16px",
+  bottom: "18px",
+  width: "84px",
+  height: "56px",
+  transition: "bottom 0.18s ease-out",
+  zIndex: 2,
+},
+dinoJumping: {
+  bottom: "58px",
+},
+dinoBodyMain: {
+  position: "absolute",
+  left: "18px",
+  bottom: "10px",
+  width: "34px",
+  height: "22px",
+  background: "#111111",
+  border: "2px solid #d4af37",
+  borderRadius: "4px",
+  boxShadow: "0 0 6px rgba(212, 175, 55, 0.35)",
+},
+dinoNeck: {
+  position: "absolute",
+  left: "46px",
+  bottom: "24px",
+  width: "10px",
+  height: "12px",
+  background: "#111111",
+  border: "2px solid #d4af37",
+  borderRadius: "3px",
+  boxShadow: "0 0 6px rgba(212, 175, 55, 0.35)",
+},
+dinoHead: {
+  position: "absolute",
+  left: "50px",
+  bottom: "28px",
+  width: "20px",
+  height: "16px",
+  background: "#111111",
+  border: "2px solid #d4af37",
+  borderRadius: "4px",
+  boxShadow: "0 0 6px rgba(212, 175, 55, 0.35)",
+},
+dinoEye: {
+  position: "absolute",
+  left: "63px",
+  bottom: "38px",
+  width: "4px",
+  height: "4px",
+  background: "#d4af37",
+  borderRadius: "50%",
+},
+dinoArm: {
+  position: "absolute",
+  left: "48px",
+  bottom: "16px",
+  width: "10px",
+  height: "4px",
+  background: "#111111",
+  border: "2px solid #d4af37",
+  borderRadius: "3px",
+},
+dinoLeg: {
+  position: "absolute",
+  bottom: "0px",
+  width: "6px",
+  height: "14px",
+  background: "#111111",
+  border: "2px solid #d4af37",
+  borderRadius: "2px",
+  boxShadow: "0 0 6px rgba(212, 175, 55, 0.25)",
+},
+dinoTail: {
+  position: "absolute",
+  left: "2px",
+  bottom: "18px",
+  width: "18px",
+  height: "6px",
+  background: "#111111",
+  border: "2px solid #d4af37",
+  borderRadius: "3px",
+  transform: "rotate(-18deg)",
+  transformOrigin: "right center",
+  boxShadow: "0 0 6px rgba(212, 175, 55, 0.25)",
+},
+  obstacle: {
+    position: "absolute",
+    bottom: "18px",
+    fontSize: "28px",
+    zIndex: 2,
+  },
+  ground: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: "14px",
+    height: "2px",
+    background: "#cbd5e1",
   },
   message: {
     marginTop: "16px",

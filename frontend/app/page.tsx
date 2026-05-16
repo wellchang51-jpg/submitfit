@@ -291,11 +291,11 @@ export default function Home() {
             <p style={styles.progressTitle}>正在壓縮中</p>
 
             <p style={styles.progressText}>
-              預估處理時間：通常 20 秒～2 分鐘
+              預估處理時間：線上版通常需要 1～4 分鐘
             </p>
 
             <p style={styles.progressHint}>
-              已處理約 {elapsedSeconds} 秒。系統會優先保留圖片與版面完整，請不要重新整理或關閉頁面。
+              已處理約 {elapsedSeconds} 秒。線上壓縮會優先保留圖片與版面完整，大檔案可能需要更久，請不要重新整理或關閉頁面。
             </p>
           </div>
         )}
